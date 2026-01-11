@@ -6,49 +6,51 @@
 #include <algorithm>
 #include "../../include/sqlite/sqlite3.h"
 
-// Reuse sqlite3.c from src
-// #include "../../src/sqlite/sqlite3.c"
+// Helper to split string
+std::vector<std::string> Split(const std::string& str, char delimiter) {
+    std::vector<std::string> tokens;
+    std::string token;
+    std::istringstream tokenStream(str);
+    while (std::getline(tokenStream, token, delimiter)) {
+        if (!token.empty())
+            tokens.push_back(token);
+    }
+    return tokens;
+}
 
-// Helper to remove tones
-std::string RemoveTones(const std::string& pinyin) {
-    // Simplified tone mapping for UTF-8 input
-    static const std::vector<std::pair<std::string, char>> toneMap = {
-        {"ā", 'a'}, {"á", 'a'}, {"ǎ", 'a'}, {"à", 'a'},
-        {"ē", 'e'}, {"é", 'e'}, {"ě", 'e'}, {"è", 'e'},
-        {"ī", 'i'}, {"í", 'i'}, {"ǐ", 'i'}, {"ì", 'i'},
-        {"ō", 'o'}, {"ó", 'o'}, {"ǒ", 'o'}, {"ò", 'o'},
-        {"ū", 'u'}, {"ú", 'u'}, {"ǔ", 'u'}, {"ù", 'u'},
-        {"ǖ", 'v'}, {"ǘ", 'v'}, {"ǚ", 'v'}, {"ǜ", 'v'}, {"ü", 'v'},
-        {"n", 'n'}, {"g", 'g'}
-    };
-
-    std::string result;
-    for (size_t i = 0; i < pinyin.length(); ++i) {
-        unsigned char c = (unsigned char)pinyin[i];
-        if (c < 128) {
-            if (isalpha(c)) result += tolower(c);
-        } else {
-            bool found = false;
-            for (const auto& pair : toneMap) {
-                if (pinyin.substr(i).find(pair.first) == 0) {
-                    result += pair.second;
-                    i += pair.first.length() - 1;
-                    found = true;
-                    break;
+// Process CEDICT pinyin: "ni3 hao3" -> "nihao", initials: "nh"
+void ProcessPinyin(const std::string& rawPinyin, std::string& outClean, std::string& outInitials) {
+    outClean = "";
+    outInitials = "";
+    
+    std::vector<std::string> syllables = Split(rawPinyin, ' ');
+    for (const auto& syl : syllables) {
+        std::string cleanSyl;
+        for (char c : syl) {
+            if (isalpha(c)) {
+                cleanSyl += tolower(c);
+            } else if (c == ':') {
+                // Handle u: -> v
+                if (!cleanSyl.empty() && cleanSyl.back() == 'u') {
+                    cleanSyl.back() = 'v';
                 }
             }
         }
+        
+        if (!cleanSyl.empty()) {
+            outClean += cleanSyl;
+            outInitials += cleanSyl[0];
+        }
     }
-    return result;
 }
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
-        std::cout << "Usage: DictBuilder <pinyin.txt> <output.db>" << std::endl;
+        std::cout << "Usage: DictBuilder <cedict_ts.u8> <output.db>" << std::endl;
         return 1;
     }
 
-    std::string pinyinPath = argv[1];
+    std::string dictPath = argv[1];
     std::string dbPath = argv[2];
 
     // Remove existing db
@@ -60,50 +62,70 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    sqlite3_exec(db, "CREATE TABLE pinyin_map (id INTEGER PRIMARY KEY AUTOINCREMENT, pinyin TEXT NOT NULL, hanzi TEXT NOT NULL);", 0, 0, 0);
-    sqlite3_exec(db, "CREATE INDEX idx_pinyin ON pinyin_map (pinyin);", 0, 0, 0);
+    // Create table with initials support
+    // Priority: Default 0. We can adjust this later based on length or external freq data.
+    sqlite3_exec(db, "CREATE TABLE lexicon (" \
+                     "id INTEGER PRIMARY KEY AUTOINCREMENT," \
+                     "hanzi TEXT NOT NULL," \
+                     "pinyin_clean TEXT NOT NULL," \
+                     "initials TEXT NOT NULL," \
+                     "priority INTEGER DEFAULT 0);", 0, 0, 0);
+    
+    // Indexes for fast lookup
+    sqlite3_exec(db, "CREATE INDEX idx_pinyin ON lexicon (pinyin_clean);", 0, 0, 0);
+    sqlite3_exec(db, "CREATE INDEX idx_initials ON lexicon (initials);", 0, 0, 0);
+    
     sqlite3_exec(db, "BEGIN TRANSACTION;", 0, 0, 0);
 
-    std::ifstream file(pinyinPath);
+    std::ifstream file(dictPath);
     if (!file.is_open()) {
-        std::cerr << "Failed to open " << pinyinPath << std::endl;
+        std::cerr << "Failed to open " << dictPath << std::endl;
         return 1;
     }
 
     std::string line;
     int count = 0;
     sqlite3_stmt* stmt;
-    sqlite3_prepare_v2(db, "INSERT INTO pinyin_map (pinyin, hanzi) VALUES (?, ?);", -1, &stmt, 0);
+    sqlite3_prepare_v2(db, "INSERT INTO lexicon (hanzi, pinyin_clean, initials, priority) VALUES (?, ?, ?, ?);", -1, &stmt, 0);
+
+    std::cout << "Processing " << dictPath << "..." << std::endl;
 
     while (std::getline(file, line)) {
         if (line.empty() || line[0] == '#') continue;
 
-        size_t colonPos = line.find(':');
-        size_t hashPos = line.find('#');
-
-        if (colonPos != std::string::npos && hashPos != std::string::npos) {
-            std::string pinyinPart = line.substr(colonPos + 1, hashPos - colonPos - 1);
-            std::string hanzi = line.substr(hashPos + 1);
+        // Format: Traditional Simplified [pin1 yin1] /English/
+        // Example: 你好 你好 [ni3 hao3] /Hello!/
+        
+        std::stringstream ss(line);
+        std::string trad, simp, pinyinRaw;
+        
+        ss >> trad >> simp;
+        
+        // Extract [ ... ]
+        size_t startBracket = line.find('[');
+        size_t endBracket = line.find(']');
+        
+        if (startBracket != std::string::npos && endBracket != std::string::npos) {
+            pinyinRaw = line.substr(startBracket + 1, endBracket - startBracket - 1);
             
-            // Trim hanzi
-            hanzi.erase(0, hanzi.find_first_not_of(" \t\r\n"));
-            hanzi.erase(hanzi.find_last_not_of(" \t\r\n") + 1);
+            std::string clean, initials;
+            ProcessPinyin(pinyinRaw, clean, initials);
+            
+            if (!clean.empty() && !simp.empty()) {
+                // Priority heuristic: shorter words are more common? 
+                // Let's give slight boost to shorter words (negative length as priority, so sorted DESC gives shorter first?)
+                // Actually let's store 10 - length. So 1 char = 9, 2 chars = 8.
+                int priority = 10 - (int)simp.length(); 
+                if (priority < 0) priority = 0;
 
-            std::stringstream ss(pinyinPart);
-            std::string pinyinItem;
-            while (std::getline(ss, pinyinItem, ',')) {
-                // Trim pinyinItem
-                pinyinItem.erase(0, pinyinItem.find_first_not_of(" \t\r\n"));
-                pinyinItem.erase(pinyinItem.find_last_not_of(" \t\r\n") + 1);
-
-                std::string cleanPinyin = RemoveTones(pinyinItem);
-                if (!cleanPinyin.empty()) {
-                    sqlite3_reset(stmt);
-                    sqlite3_bind_text(stmt, 1, cleanPinyin.c_str(), -1, SQLITE_STATIC);
-                    sqlite3_bind_text(stmt, 2, hanzi.c_str(), -1, SQLITE_STATIC);
-                    sqlite3_step(stmt);
-                    count++;
-                }
+                sqlite3_reset(stmt);
+                sqlite3_bind_text(stmt, 1, simp.c_str(), -1, SQLITE_STATIC);
+                sqlite3_bind_text(stmt, 2, clean.c_str(), -1, SQLITE_STATIC);
+                sqlite3_bind_text(stmt, 3, initials.c_str(), -1, SQLITE_STATIC);
+                sqlite3_bind_int(stmt, 4, priority);
+                
+                sqlite3_step(stmt);
+                count++;
             }
         }
     }

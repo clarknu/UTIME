@@ -28,9 +28,9 @@ bool CCandidateWindow::Initialize(HINSTANCE hInstance)
     RegisterClassEx(&wc);
 
     _hFont = CreateFont(
-        20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        24, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei");
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
 
     // Create the window but don't show it yet
     // WS_POPUP: No border
@@ -40,7 +40,7 @@ bool CCandidateWindow::Initialize(HINSTANCE hInstance)
     _hwnd = CreateWindowEx(
         WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         CANDIDATE_WINDOW_CLASS,
-        L"UTIME Candidates",
+        L"UTIME Candidates (v1.1)", // Simple version marker
         WS_POPUP | WS_BORDER,
         0, 0, 100, 30, // Initial size
         NULL, NULL, hInstance, this);
@@ -79,7 +79,7 @@ void CCandidateWindow::Show(int x, int y, const std::vector<std::wstring>& candi
     HDC hdc = GetDC(_hwnd);
     HFONT hOldFont = (HFONT)SelectObject(hdc, _hFont);
 
-    int maxWidth = 0;
+    int maxWidth = 200; // Minimum width
     int totalHeight = _padding * 2;
 
     for (size_t i = 0; i < _candidates.size(); ++i)
@@ -87,13 +87,10 @@ void CCandidateWindow::Show(int x, int y, const std::vector<std::wstring>& candi
         std::wstring line = std::to_wstring(i + 1) + L". " + _candidates[i];
         SIZE sz;
         GetTextExtentPoint32(hdc, line.c_str(), (int)line.length(), &sz);
-        if (sz.cx > maxWidth) maxWidth = sz.cx;
+        if (sz.cx + _padding * 4 > maxWidth) maxWidth = sz.cx + _padding * 4;
         totalHeight += _lineHeight;
     }
     
-    // Add some padding
-    maxWidth += _padding * 4;
-
     SelectObject(hdc, hOldFont);
     ReleaseDC(_hwnd, hdc);
 
@@ -136,6 +133,7 @@ void CCandidateWindow::_OnPaint(HDC hdc)
 {
     RECT rc;
     GetClientRect(_hwnd, &rc);
+    int maxWidth = rc.right;
     
     // Fill background
     HBRUSH hBrushBg = CreateSolidBrush(RGB(255, 255, 255));
@@ -154,7 +152,7 @@ void CCandidateWindow::_OnPaint(HDC hdc)
         // Highlight selected
         if ((int)i == _selectedIndex)
         {
-            RECT rcLine = { 0, y, rc.right, y + _lineHeight };
+            RECT rcLine = { _padding, y, maxWidth - _padding, y + _lineHeight };
             HBRUSH hBrushSel = CreateSolidBrush(RGB(230, 240, 255)); // Light blue
             FillRect(hdc, &rcLine, hBrushSel);
             DeleteObject(hBrushSel);
@@ -168,6 +166,11 @@ void CCandidateWindow::_OnPaint(HDC hdc)
         TextOut(hdc, _padding * 2, y + 2, line.c_str(), (int)line.length());
         y += _lineHeight;
     }
+
+    // Draw Version Stamp
+    SetTextColor(hdc, RGB(150, 150, 150)); // Gray text
+    std::wstring ver = L"UTIME v1.2";
+    TextOut(hdc, maxWidth - 80, 2, ver.c_str(), (int)ver.length());
 
     SelectObject(hdc, hOldFont);
 }

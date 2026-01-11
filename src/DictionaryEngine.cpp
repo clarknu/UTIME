@@ -4,6 +4,66 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <set>
+#include <vector>
+#include <string>
+
+// ---------------------------------------------------------
+// Smart Correction & Fuzzy Logic Helpers
+// ---------------------------------------------------------
+
+// 1. Auto-Correction: Fix common typos
+std::string AutoCorrect(std::string input) {
+    static const std::vector<std::pair<std::string, std::string>> corrections = {
+        {"ign", "ing"},  {"img", "ing"},
+        {"uen", "un"},   {"iou", "iu"},
+        {"uei", "ui"},   {"v", "u"} 
+    };
+    for (const auto& pair : corrections) {
+        size_t pos = 0;
+        while ((pos = input.find(pair.first, pos)) != std::string::npos) {
+            input.replace(pos, pair.first.length(), pair.second);
+            pos += pair.second.length();
+        }
+    }
+    return input;
+}
+
+// 2. Fuzzy Expansion: Generate variants (z<->zh, l<->n, etc.)
+std::vector<std::string> GetFuzzyList(const std::string& input) {
+    std::string corrected = AutoCorrect(input);
+    std::set<std::string> variants;
+    variants.insert(corrected);
+
+    // Simple single-pass fuzzy expansion for performance
+    // Focusing on initials and common confused sounds
+    std::string temp = corrected;
+    
+    // z <-> zh
+    if (temp.find("zh") == 0) variants.insert("z" + temp.substr(2));
+    else if (temp.find("z") == 0) variants.insert("zh" + temp.substr(1));
+    
+    // c <-> ch
+    if (temp.find("ch") == 0) variants.insert("c" + temp.substr(2));
+    else if (temp.find("c") == 0) variants.insert("ch" + temp.substr(1));
+    
+    // s <-> sh
+    if (temp.find("sh") == 0) variants.insert("s" + temp.substr(2));
+    else if (temp.find("s") == 0) variants.insert("sh" + temp.substr(1));
+    
+    // l <-> n
+    if (temp.find("n") == 0) variants.insert("l" + temp.substr(1));
+    else if (temp.find("l") == 0) variants.insert("n" + temp.substr(1));
+    
+    // ing <-> in
+    if (temp.length() > 3 && temp.substr(temp.length()-3) == "ing") 
+        variants.insert(temp.substr(0, temp.length()-1)); // ing -> in
+    else if (temp.length() > 2 && temp.substr(temp.length()-2) == "in")
+        variants.insert(temp + "g"); // in -> ing
+
+    return std::vector<std::string>(variants.begin(), variants.end());
+}
+
 
 // Use UTF-8 literal strings directly
 // #define U8(x) u8##x
@@ -129,30 +189,59 @@ bool CDictionaryEngine::Initialize()
 std::vector<std::wstring> CDictionaryEngine::Query(const std::wstring& pinyin)
 {
     std::vector<std::wstring> results;
-    if (!_db) return results;
+    if (!_db || pinyin.empty()) return results;
 
-    // Convert pinyin to UTF-8
+    // Convert pinyin to UTF-8 and lowercase
     char pinyinUtf8[128];
     WideCharToMultiByte(CP_UTF8, 0, pinyin.c_str(), -1, pinyinUtf8, 128, NULL, NULL);
+    std::string inputRaw = pinyinUtf8;
+    std::transform(inputRaw.begin(), inputRaw.end(), inputRaw.begin(), ::tolower);
 
-    const char* sql = "SELECT hanzi FROM pinyin_map WHERE pinyin = ? LIMIT 10;";
+    // Get all fuzzy variants (including auto-corrected)
+    std::vector<std::string> searchKeys = GetFuzzyList(inputRaw);
+    
+    // Build Dynamic SQL
+    std::string sql = "SELECT hanzi FROM lexicon WHERE ";
+    for (size_t i = 0; i < searchKeys.size(); ++i) {
+        if (i > 0) sql += " OR ";
+        sql += "(pinyin_clean LIKE ? OR initials LIKE ?)";
+    }
+    sql += " ORDER BY length(pinyin_clean) ASC, priority DESC LIMIT 20;";
+
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(_db, sql, -1, &stmt, 0) == SQLITE_OK)
+    if (sqlite3_prepare_v2(_db, sql.c_str(), -1, &stmt, 0) == SQLITE_OK)
     {
-        sqlite3_bind_text(stmt, 1, pinyinUtf8, -1, SQLITE_STATIC);
+        // Keep bind values alive until step is done
+        std::vector<std::string> bindValues;
+        for (const auto& key : searchKeys) {
+            bindValues.push_back(key + "%");
+        }
+
+        int bindIdx = 1;
+        for (const auto& val : bindValues) {
+            sqlite3_bind_text(stmt, bindIdx++, val.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt, bindIdx++, val.c_str(), -1, SQLITE_STATIC);
+        }
         
+        std::set<std::wstring> seen;
         while (sqlite3_step(stmt) == SQLITE_ROW)
         {
             const unsigned char* text = sqlite3_column_text(stmt, 0);
             if (text)
             {
-                // Convert UTF-8 hanzi back to WideChar
                 wchar_t hanziW[128];
                 MultiByteToWideChar(CP_UTF8, 0, (const char*)text, -1, hanziW, 128);
-                results.push_back(hanziW);
+                if (seen.find(hanziW) == seen.end()) {
+                    results.push_back(hanziW);
+                    seen.insert(hanziW);
+                }
             }
         }
         sqlite3_finalize(stmt);
+    }
+    else
+    {
+        DebugLog(L"SQL Error: %S", sqlite3_errmsg(_db));
     }
 
     return results;

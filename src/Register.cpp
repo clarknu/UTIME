@@ -51,11 +51,36 @@ STDAPI DllRegisterServer()
         if (SUCCEEDED(hr))
         {
             hr = pProfiles->AddLanguageProfile(CLSID_UTIME, 0x0804, GUID_PROFILE, c_szDescription, (ULONG)wcslen(c_szDescription), szFileName, (ULONG)wcslen(szFileName), 0);
+            
+            // Explicitly enable the profile
+            if (SUCCEEDED(hr))
+            {
+                hr = pProfiles->EnableLanguageProfile(CLSID_UTIME, 0x0804, GUID_PROFILE, TRUE);
+            }
         }
         pProfiles->Release();
     }
 
-    return S_OK;
+    if (FAILED(hr))
+    {
+        return hr;
+    }
+
+    // Register TSF Category
+    ITfCategoryMgr *pCategoryMgr;
+    hr = CoCreateInstance(CLSID_TF_CategoryMgr, NULL, CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr, (void**)&pCategoryMgr);
+    if (SUCCEEDED(hr))
+    {
+        hr = pCategoryMgr->RegisterCategory(CLSID_UTIME, GUID_TFCAT_TIP_KEYBOARD, CLSID_UTIME);
+        // We are NOT implementing Display Attributes yet, so do not register it.
+        // if (SUCCEEDED(hr))
+        // {
+        //     hr = pCategoryMgr->RegisterCategory(CLSID_UTIME, GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, CLSID_UTIME);
+        // }
+        pCategoryMgr->Release();
+    }
+    
+    return hr;
 }
 
 // Unregister the COM server
@@ -70,6 +95,16 @@ STDAPI DllUnregisterServer()
     {
         pProfiles->Unregister(CLSID_UTIME);
         pProfiles->Release();
+    }
+
+    // Unregister TSF Category
+    ITfCategoryMgr *pCategoryMgr;
+    hr = CoCreateInstance(CLSID_TF_CategoryMgr, NULL, CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr, (void**)&pCategoryMgr);
+    if (SUCCEEDED(hr))
+    {
+        pCategoryMgr->UnregisterCategory(CLSID_UTIME, GUID_TFCAT_TIP_KEYBOARD, CLSID_UTIME);
+        // pCategoryMgr->UnregisterCategory(CLSID_UTIME, GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, CLSID_UTIME);
+        pCategoryMgr->Release();
     }
 
     // Delete CLSID keys

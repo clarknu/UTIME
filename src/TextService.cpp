@@ -2,6 +2,25 @@
 #include "EditSession.h"
 #include "GetTextExtEditSession.h"
 #include "DictionaryEngine.h"
+#include <fstream>
+
+void DebugLog(const wchar_t* format, ...)
+{
+    wchar_t buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vswprintf_s(buffer, 1024, format, args);
+    va_end(args);
+
+    OutputDebugString(buffer);
+    
+    // Also write to file for persistence
+    std::wofstream logFile("C:\\Windows\\Temp\\UTIME_Debug.log", std::ios::app);
+    if (logFile.is_open())
+    {
+        logFile << buffer << std::endl;
+    }
+}
 
 CTextService::CTextService() 
     : _cRef(1), 
@@ -171,9 +190,15 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext *pic, WPARAM wParam, LPARAM lPar
     else if (wParam == VK_SPACE) {
         if (!_sComposition.empty()) {
             // Commit first candidate
-            std::wstring commitText = _sComposition;
+            std::wstring commitText = _sComposition; // Default: commit raw pinyin
+            
             if (_candidateList.size() > 0)
             {
+                // Format: "1. text" -> we need "text"
+                // Assuming _candidateList contains raw text "text"
+                
+                // If the first candidate is the same as composition (meaning no match found), keep it
+                // Otherwise use the candidate
                 commitText = _candidateList[0];
             }
             
@@ -187,6 +212,11 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext *pic, WPARAM wParam, LPARAM lPar
             _sComposition.clear();
             _candidateList.clear();
             if (_pCandidateWindow) _pCandidateWindow->Hide();
+        }
+        else
+        {
+            // Pass space to application
+            *pfEaten = FALSE;
         }
     }
     else if (wParam == VK_ESCAPE) {
@@ -270,12 +300,17 @@ void CTextService::_UpdateCandidateWindow(ITfContext *pContext)
 {
     if (!_pCandidateWindow) return;
 
+    DebugLog(L"_UpdateCandidateWindow: Composition=%s", _sComposition.c_str());
+
     // 1. Query candidates from DB
     _candidateList = CDictionaryEngine::Instance().Query(_sComposition);
     
+    DebugLog(L"Query returned %d candidates", _candidateList.size());
+
     // Fallback if no result
     if (_candidateList.empty()) {
         _candidateList.push_back(_sComposition);
+        DebugLog(L"Added fallback candidate");
     }
 
     // 2. Get cursor position
@@ -287,21 +322,44 @@ void CTextService::_UpdateCandidateWindow(ITfContext *pContext)
         pContext->RequestEditSession(_tfClientId, pSession, TF_ES_SYNC | TF_ES_READ, NULL);
         rc = pSession->GetRect();
         pSession->Release();
+        
+        // Map Client to Screen Coordinates
+        // GetTextExt *usually* returns screen coordinates, but if it fails or returns 0, we need to handle it.
+        // Also, we need to get the window handle of the active view to map coordinates if necessary.
+        HWND hwnd;
+        if (SUCCEEDED(pView->GetWnd(&hwnd)))
+        {
+             // If rc is relative to client, we might need to map it. 
+             // However, TSF spec says GetTextExt is in Screen Coordinates.
+             // But sometimes it returns 0,0 if the range is not visible or valid.
+             if (rc.left == 0 && rc.top == 0)
+             {
+                 // Try to get caret pos from system
+                 POINT ptCaret;
+                 if (GetCaretPos(&ptCaret))
+                 {
+                     ClientToScreen(hwnd, &ptCaret);
+                     rc.left = ptCaret.x;
+                     rc.bottom = ptCaret.y + 20; // Assume height
+                     DebugLog(L"Used GetCaretPos fallback: (%d, %d)", rc.left, rc.bottom);
+                 }
+             }
+        }
+        
         pView->Release();
     }
     
+    DebugLog(L"Cursor Rect: (%d, %d, %d, %d)", rc.left, rc.top, rc.right, rc.bottom);
+
     // 3. Show Window
-    // Convert client coordinates to screen coordinates
-    // Wait, GetTextExt returns Screen Coordinates? TSF documentation says:
-    // "The returned rectangle is in screen coordinates." - Yes.
-    
-    if (rc.left == 0 && rc.top == 0)
+    // Fallback if we can't get position (e.g. console apps sometimes)
+    if (rc.left == 0 && rc.top == 0 && rc.right == 0 && rc.bottom == 0)
     {
-        // Fallback if we can't get position (e.g. console apps sometimes)
         POINT pt;
         GetCursorPos(&pt);
         rc.left = pt.x;
         rc.bottom = pt.y + 20;
+        DebugLog(L"Using Mouse Position: (%d, %d)", rc.left, rc.bottom);
     }
 
     _pCandidateWindow->Show(rc.left, rc.bottom, _candidateList, 0);

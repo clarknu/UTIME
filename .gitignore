@@ -361,3 +361,28 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Custom Rules
+*.log
+*.db
+tools/*.exe
+tools/*.obj
+tools/DictBuilder/*.exe
+tools/DictBuilder/*.obj
+bin/
+obj/
+src/utime.db
+Register.log
+DllMain.log
+.vs/
+*.user
+*.suo
+*.pdb
+*.ilk
+*.aps
+*.sdf
+*.opensdf
+*.opendsb
+*.tlog
+*.idb
+*.lastbuildstate

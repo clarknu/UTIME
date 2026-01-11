@@ -23,13 +23,4 @@ void DllAddRef();
 void DllRelease();
 
 // Debug Logger Helper
-inline void DebugLog(const wchar_t* format, ...)
-{
-    wchar_t buffer[1024];
-    va_list args;
-    va_start(args, format);
-    StringCchVPrintf(buffer, 1024, format, args);
-    va_end(args);
-    OutputDebugString(buffer);
-    OutputDebugString(L"\n");
-}
+void DebugLog(const wchar_t* format, ...);
