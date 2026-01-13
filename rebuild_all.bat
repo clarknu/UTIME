@@ -19,32 +19,53 @@ set "DLL_NAME=UTIME.dll"
 set "DLL_PATH=%DLL_DIR%\%DLL_NAME%"
 
 :: ========================================================
-:: 2. Force Unlock & Clean
+:: 2. Force Unlock & Clean (Optimized Order)
 :: ========================================================
 echo.
 echo [Step 1/4] Cleaning up previous instance...
 
-:: Kill processes
-taskkill /f /im notepad.exe >nul 2>&1
-taskkill /f /im ctfmon.exe >nul 2>&1
-timeout /t 1 /nobreak >nul
-
-:: Unregister if exists
+:: Step 2.1: First unregister to release TSF hooks
+echo   - Unregistering DLL...
 if exist "%DLL_PATH%" (
-    regsvr32 /u /s "%DLL_PATH%"
+    regsvr32 /u /s "%DLL_PATH%" >nul 2>&1
 )
 
-:: Force delete or rename
+:: Step 2.2: Stop ctfmon service to prevent auto-restart
+echo   - Stopping Text Services...
+sc stop "TabletInputService" >nul 2>&1
+
+:: Step 2.3: Kill processes AFTER unregister
+echo   - Killing processes...
+taskkill /f /im ctfmon.exe >nul 2>&1
+taskkill /f /im notepad.exe >nul 2>&1
+
+:: Step 2.4: Wait longer for handles to be released
+echo   - Waiting for handles to release...
+timeout /t 3 /nobreak >nul
+
+:: Step 2.5: Force delete or rename
 if exist "%DLL_PATH%" (
     del /f /q "%DLL_PATH%" >nul 2>&1
     if exist "%DLL_PATH%" (
-        echo [INFO] File locked, renaming...
-        ren "%DLL_PATH%" "%DLL_NAME%.trash.%RANDOM%"
+        echo   - Delete failed, attempting rename...
+        ren "%DLL_PATH%" "%DLL_NAME%.trash.%RANDOM%" >nul 2>&1
         if exist "%DLL_PATH%" (
-            echo [ERROR] Failed to remove locked file.
-            echo Please manually restart your computer or Windows Explorer.
-            pause
-            exit /b
+            echo [WARNING] File still locked. Trying extended cleanup...
+            :: Extra attempt: restart explorer (last resort)
+            taskkill /f /im explorer.exe >nul 2>&1
+            timeout /t 2 /nobreak >nul
+            del /f /q "%DLL_PATH%" >nul 2>&1
+            start explorer.exe
+            if exist "%DLL_PATH%" (
+                ren "%DLL_PATH%" "%DLL_NAME%.trash.%RANDOM%" >nul 2>&1
+            )
+            if exist "%DLL_PATH%" (
+                echo [ERROR] Failed to remove locked file.
+                echo Please manually restart your computer.
+                sc start "TabletInputService" >nul 2>&1
+                pause
+                exit /b
+            )
         )
     )
 )
@@ -106,9 +127,11 @@ if exist "%APPDATA%\UTIME\utime.db" (
 echo.
 echo [Step 3/4] Registering DLL...
 
-:: Restart ctfmon before registering
+:: Restart Text Services before registering
+echo   - Restarting Text Services...
+sc start "TabletInputService" >nul 2>&1
 start ctfmon.exe
-timeout /t 1 /nobreak >nul
+timeout /t 2 /nobreak >nul
 
 if not exist "%DLL_PATH%" (
     echo [ERROR] DLL not found at: %DLL_PATH%
