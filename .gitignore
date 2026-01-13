@@ -98,6 +98,19 @@ StyleCopReport.xml
 *.svclog
 *.scc
 
+# UTIME specific
+src/utime.db
+build/
+*.log
+tools/*.exe
+tools/*.obj
+tools/*.pdb
+!src/cedict_ts.u8
+!src/pinyin.txt
+!scripts/build_dict.py
+!tools/DictBuilder/main.cpp
+!tools/DictBuilder/DictBuilder.vcxproj
+
 # Chutzpah Test files
 _Chutzpah*
 

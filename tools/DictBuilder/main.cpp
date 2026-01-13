@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <windows.h>
 #include "../../include/sqlite/sqlite3.h"
 
 // Helper to split string
@@ -26,7 +27,7 @@ void ProcessPinyin(const std::string& rawPinyin, std::string& outClean, std::str
     std::vector<std::string> syllables = Split(rawPinyin, ' ');
     for (const auto& syl : syllables) {
         std::string cleanSyl;
-        for (char c : syl) {
+        for (unsigned char c : syl) {
             if (isalpha(c)) {
                 cleanSyl += tolower(c);
             } else if (c == ':') {
@@ -39,7 +40,7 @@ void ProcessPinyin(const std::string& rawPinyin, std::string& outClean, std::str
         
         if (!cleanSyl.empty()) {
             outClean += cleanSyl;
-            outInitials += cleanSyl[0];
+            outInitials += (char)cleanSyl[0];
         }
     }
 }
@@ -80,58 +81,102 @@ int main(int argc, char* argv[]) {
     std::ifstream file(dictPath);
     if (!file.is_open()) {
         std::cerr << "Failed to open " << dictPath << std::endl;
+        // Try absolute path or check current directory
+        char buf[MAX_PATH];
+        GetCurrentDirectoryA(MAX_PATH, buf);
+        std::cerr << "Current Directory: " << buf << std::endl;
         return 1;
     }
 
     std::string line;
     int count = 0;
-    sqlite3_stmt* stmt;
-    sqlite3_prepare_v2(db, "INSERT INTO lexicon (hanzi, pinyin_clean, initials, priority) VALUES (?, ?, ?, ?);", -1, &stmt, 0);
+    int line_count = 0;
+    sqlite3_stmt* stmt = nullptr;
+    int rc_prep = sqlite3_prepare_v2(db, "INSERT INTO lexicon (hanzi, pinyin_clean, initials, priority) VALUES (?, ?, ?, ?);", -1, &stmt, 0);
+    if (rc_prep != SQLITE_OK) {
+        std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(db) << std::endl;
+        return 1;
+    }
 
     std::cout << "Processing " << dictPath << "..." << std::endl;
 
-    while (std::getline(file, line)) {
-        if (line.empty() || line[0] == '#') continue;
+    try {
+        while (std::getline(file, line)) {
+            line_count++;
+            if (line.empty() || line[0] == '#') continue;
 
-        // Format: Traditional Simplified [pin1 yin1] /English/
-        // Example: 你好 你好 [ni3 hao3] /Hello!/
-        
-        std::stringstream ss(line);
-        std::string trad, simp, pinyinRaw;
-        
-        ss >> trad >> simp;
-        
-        // Extract [ ... ]
-        size_t startBracket = line.find('[');
-        size_t endBracket = line.find(']');
-        
-        if (startBracket != std::string::npos && endBracket != std::string::npos) {
-            pinyinRaw = line.substr(startBracket + 1, endBracket - startBracket - 1);
-            
-            std::string clean, initials;
-            ProcessPinyin(pinyinRaw, clean, initials);
-            
-            if (!clean.empty() && !simp.empty()) {
-                // Priority heuristic: shorter words are more common? 
-                // Let's give slight boost to shorter words (negative length as priority, so sorted DESC gives shorter first?)
-                // Actually let's store 10 - length. So 1 char = 9, 2 chars = 8.
-                int priority = 10 - (int)simp.length(); 
-                if (priority < 0) priority = 0;
+            if (line_count % 1000 == 0) {
+                std::cout << "Read " << line_count << " lines..." << std::endl;
+            }
 
-                sqlite3_reset(stmt);
-                sqlite3_bind_text(stmt, 1, simp.c_str(), -1, SQLITE_STATIC);
-                sqlite3_bind_text(stmt, 2, clean.c_str(), -1, SQLITE_STATIC);
-                sqlite3_bind_text(stmt, 3, initials.c_str(), -1, SQLITE_STATIC);
-                sqlite3_bind_int(stmt, 4, priority);
+            // Format: Traditional Simplified [pin1 yin1] /English/
+            // Example: 你好 你好 [ni3 hao3] /Hello!/
+            
+            std::stringstream ss(line);
+            std::string trad, simp, pinyinRaw;
+            
+            if (!(ss >> trad >> simp)) {
+                std::cerr << "Failed to parse trad/simp at line " << line_count << ": " << line << std::endl;
+                continue;
+            }
+            
+            // Extract [ ... ]
+            size_t startBracket = line.find('[');
+            size_t endBracket = line.find(']');
+            
+            if (startBracket != std::string::npos && endBracket != std::string::npos) {
+                if (endBracket <= startBracket) {
+                    std::cerr << "Invalid brackets at line " << line_count << ": " << line << std::endl;
+                    continue;
+                }
+                pinyinRaw = line.substr(startBracket + 1, endBracket - startBracket - 1);
                 
-                sqlite3_step(stmt);
-                count++;
+                std::string clean, initials;
+                ProcessPinyin(pinyinRaw, clean, initials);
+                
+                if (!clean.empty() && !simp.empty()) {
+                    // Priority heuristic: shorter words are more common? 
+                    int priority = 10 - (int)simp.length(); 
+                    if (priority < 0) priority = 0;
+
+                    sqlite3_reset(stmt);
+                    sqlite3_bind_text(stmt, 1, simp.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(stmt, 2, clean.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(stmt, 3, initials.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(stmt, 4, priority);
+                    
+                    int rc_step = sqlite3_step(stmt);
+                    if (rc_step != SQLITE_DONE) {
+                        std::cerr << "Failed to insert record at line " << line_count << ": " << sqlite3_errmsg(db) << " (rc=" << rc_step << ")" << std::endl;
+                    }
+                    count++;
+                    if (count % 10000 == 0) {
+                        std::cout << "Inserted " << count << " records (total lines: " << line_count << ")..." << std::endl;
+                    }
+                }
+            } else {
+                // Some lines might not have brackets, that's fine for CEDICT if it's a comment but we already skipped #
+                // But let's log if it's unexpected
+                if (line.find('/') != std::string::npos) {
+                    std::cerr << "Missing brackets in dictionary entry at line " << line_count << ": " << line << std::endl;
+                }
             }
         }
+    } catch (const std::exception& e) {
+        std::cerr << "Exception occurred during processing: " << e.what() << " at line " << line_count << std::endl;
+        return 1;
+    } catch (...) {
+        std::cerr << "Unknown exception occurred at line " << line_count << std::endl;
+        return 1;
     }
 
+    std::cout << "Finished reading file. Total lines: " << line_count << ", Total records found: " << count << std::endl;
+
     sqlite3_finalize(stmt);
-    sqlite3_exec(db, "COMMIT;", 0, 0, 0);
+    int rc_commit = sqlite3_exec(db, "COMMIT;", 0, 0, 0);
+    if (rc_commit != SQLITE_OK) {
+        std::cerr << "Failed to commit transaction: " << sqlite3_errmsg(db) << std::endl;
+    }
     sqlite3_close(db);
 
     std::cout << "Generated " << dbPath << " with " << count << " records." << std::endl;

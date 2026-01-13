@@ -1,8 +1,10 @@
 #include "CandidateWindow.h"
+#include "TextService.h"
+#include <windowsx.h>
 
 #define CANDIDATE_WINDOW_CLASS L"UTIME_CandidateWindow"
 
-CCandidateWindow::CCandidateWindow() : _hwnd(NULL), _selectedIndex(0), _hFont(NULL)
+CCandidateWindow::CCandidateWindow() : _hwnd(NULL), _selectedIndex(0), _hFont(NULL), _pTextService(NULL), _pContext(NULL), _clickedIndex(-1)
 {
 }
 
@@ -40,7 +42,7 @@ bool CCandidateWindow::Initialize(HINSTANCE hInstance)
     _hwnd = CreateWindowEx(
         WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         CANDIDATE_WINDOW_CLASS,
-        L"UTIME Candidates (v1.1)", // Simple version marker
+        L"UTIME Candidates (v1.3)", // Simple version marker
         WS_POPUP | WS_BORDER,
         0, 0, 100, 30, // Initial size
         NULL, NULL, hInstance, this);
@@ -109,6 +111,12 @@ void CCandidateWindow::Hide()
     }
 }
 
+void CCandidateWindow::SetCallback(CTextService* pService, ITfContext* pContext)
+{
+    _pTextService = pService;
+    _pContext = pContext;
+}
+
 LRESULT CALLBACK CCandidateWindow::_WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     CCandidateWindow* pThis = (CCandidateWindow*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
@@ -124,6 +132,48 @@ LRESULT CALLBACK CCandidateWindow::_WndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             EndPaint(hwnd, &ps);
         }
         return 0;
+
+    case WM_MOUSEACTIVATE:
+        // Prevent window from being activated when clicked
+        return MA_NOACTIVATE;
+
+    case WM_LBUTTONDOWN:
+        if (pThis)
+        {
+            // Calculate which candidate was clicked
+            int mouseY = GET_Y_LPARAM(lParam);
+            int index = (mouseY - pThis->_padding) / pThis->_lineHeight;
+            
+            // Validate index
+            if (index >= 0 && index < (int)pThis->_candidates.size())
+            {
+                pThis->_clickedIndex = index;
+            }
+            else
+            {
+                pThis->_clickedIndex = -1;
+            }
+        }
+        return 0;
+
+    case WM_LBUTTONUP:
+        if (pThis && pThis->_clickedIndex >= 0)
+        {
+            // Commit the clicked candidate
+            if (pThis->_pTextService)
+            {
+                // Get current context from TextService
+                ITfContext* pContext = pThis->_pTextService->GetCurrentContext();
+                if (pContext)
+                {
+                    pThis->_pTextService->CommitCandidate(pContext, pThis->_clickedIndex);
+                    pContext->Release();
+                }
+            }
+            pThis->_clickedIndex = -1;
+        }
+        return 0;
+
     default:
         return DefWindowProc(hwnd, uMsg, wParam, lParam);
     }
@@ -169,7 +219,7 @@ void CCandidateWindow::_OnPaint(HDC hdc)
 
     // Draw Version Stamp
     SetTextColor(hdc, RGB(150, 150, 150)); // Gray text
-    std::wstring ver = L"UTIME v1.2";
+    std::wstring ver = L"UTIME v1.3";
     TextOut(hdc, maxWidth - 80, 2, ver.c_str(), (int)ver.length());
 
     SelectObject(hdc, hOldFont);

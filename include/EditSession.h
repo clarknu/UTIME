@@ -37,3 +37,12 @@ public:
     CEndCompositionEditSession(CTextService *pTextService, ITfContext *pContext);
     STDMETHODIMP DoEditSession(TfEditCookie ec);
 };
+
+class CCommitCompositionEditSession : public CEditSessionBase
+{
+public:
+    CCommitCompositionEditSession(CTextService *pTextService, ITfContext *pContext, const std::wstring &text);
+    STDMETHODIMP DoEditSession(TfEditCookie ec);
+private:
+    std::wstring _commitText;
+};

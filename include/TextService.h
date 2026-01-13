@@ -4,6 +4,7 @@
 
 class CUpdateCompositionEditSession;
 class CEndCompositionEditSession;
+class CCommitCompositionEditSession;
 
 class CTextService : public ITfTextInputProcessor,
                      public ITfKeyEventSink,
@@ -11,6 +12,7 @@ class CTextService : public ITfTextInputProcessor,
 {
     friend class CUpdateCompositionEditSession;
     friend class CEndCompositionEditSession;
+    friend class CCommitCompositionEditSession;
 
 public:
     CTextService();
@@ -39,6 +41,12 @@ public:
     // Helper
     TfClientId GetClientId() { return _tfClientId; }
 
+    // Public method for candidate window callback
+    void CommitCandidate(ITfContext *pContext, int index);
+    
+    // Get current active context
+    ITfContext* GetCurrentContext();
+
 private:
     HRESULT _InitKeyEventSink();
     void _UninitKeyEventSink();
@@ -56,8 +64,13 @@ private:
 
     ITfComposition *_pComposition;
     std::wstring _sComposition; // Current internal buffer (e.g. "nihao")
+    int _selectedCandidateIndex; // Current selected candidate index for up/down navigation
     
     // UI
     CCandidateWindow *_pCandidateWindow;
     std::vector<std::wstring> _candidateList;
+    
+    // Cached position for up/down key navigation
+    int _lastCandidateX;
+    int _lastCandidateY;
 };

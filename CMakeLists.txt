@@ -14,7 +14,6 @@ set(SOURCES
     src/CandidateWindow.cpp
     src/DictionaryEngine.cpp
     src/sqlite/sqlite3.c
-    src/UTIME.def
 )
 
 set(HEADERS
@@ -27,7 +26,7 @@ set(HEADERS
     include/sqlite/sqlite3.h
 )
 
-add_library(UTIME SHARED ${SOURCES} ${HEADERS})
+add_library(UTIME SHARED ${SOURCES} ${HEADERS} src/UTIME.def)
 
 target_link_libraries(UTIME
     PRIVATE

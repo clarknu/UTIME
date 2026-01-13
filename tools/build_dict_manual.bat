@@ -1,40 +1,35 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-:: 1. Find vcvarsall.bat
-set "VCVARS="
-if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-    set "VCVARS=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-) else if exist "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-    set "VCVARS=C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+set "MSBUILD="
+if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" (
+    set "MSBUILD=C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
+) else if exist "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\MSBuild.exe" (
+    set "MSBUILD=C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
 )
 
-if not defined VCVARS (
-    echo [ERROR] vcvars64.bat not found.
+if not defined MSBUILD (
+    echo [ERROR] MSBuild not found.
     exit /b 1
 )
 
-echo Using Environment: "!VCVARS!"
-call "!VCVARS!"
-
-echo.
-echo Compiling DictBuilder...
-cl /nologo /EHsc /DUNICODE /D_UNICODE tools\DictBuilder\main.cpp src\sqlite\sqlite3.c /Fo:tools\DictBuilder\ /Fe:tools\DictBuilder\DictBuilder.exe /I src\sqlite /I include\sqlite
-
+echo Building DictBuilder...
+"%MSBUILD%" tools\DictBuilder\DictBuilder.vcxproj /p:Configuration=Debug /p:Platform=x64 /v:minimal
 if %errorlevel% neq 0 (
-    echo [ERROR] Compilation failed.
+    echo [ERROR] Failed to build DictBuilder.
     exit /b 1
 )
 
 echo.
 echo Running DictBuilder...
-:: Check if cedict_ts.u8 exists
-if not exist "src\cedict_ts.u8" (
-    echo [ERROR] src\cedict_ts.u8 not found!
+if exist "tools\DictBuilder\x64\Debug\DictBuilder.exe" (
+    "tools\DictBuilder\x64\Debug\DictBuilder.exe" src\cedict_ts.u8 src\utime.db
+) else if exist "tools\DictBuilder\Debug\DictBuilder.exe" (
+    "tools\DictBuilder\Debug\DictBuilder.exe" src\cedict_ts.u8 src\utime.db
+) else (
+    echo [ERROR] DictBuilder.exe not found.
     exit /b 1
 )
-
-tools\DictBuilder\DictBuilder.exe src\cedict_ts.u8 src\utime.db
 
 if %errorlevel% neq 0 (
     echo [ERROR] DictBuilder failed.
@@ -43,4 +38,3 @@ if %errorlevel% neq 0 (
 
 echo.
 echo [SUCCESS] Database generated at src\utime.db
-pause

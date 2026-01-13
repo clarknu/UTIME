@@ -3,6 +3,9 @@
 #include <string>
 #include <vector>
 
+class CTextService;
+struct ITfContext;
+
 class CCandidateWindow
 {
 public:
@@ -19,6 +22,9 @@ public:
     // Check if window is currently visible
     bool IsVisible() const { return _hwnd != NULL && IsWindowVisible(_hwnd); }
 
+    // Set callback for mouse click events
+    void SetCallback(CTextService* pService, ITfContext* pContext);
+
 private:
     static LRESULT CALLBACK _WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void _OnPaint(HDC hdc);
@@ -27,6 +33,11 @@ private:
     std::vector<std::wstring> _candidates;
     int _selectedIndex;
     HFONT _hFont;
+    
+    // Callback mechanism
+    CTextService* _pTextService;
+    ITfContext* _pContext;
+    int _clickedIndex;  // Temporary storage for clicked candidate index
     
     // Layout constants
     const int _padding = 5;
