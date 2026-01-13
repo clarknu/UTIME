@@ -47,9 +47,7 @@ CUpdateCompositionEditSession::CUpdateCompositionEditSession(CTextService *pText
 
 STDMETHODIMP CUpdateCompositionEditSession::DoEditSession(TfEditCookie ec)
 {
-    DebugLog(L"CUpdateCompositionEditSession::DoEditSession called, text='%s'", _text.c_str());
-    
-    // 1. If no composition, start one
+    // If no composition, start one
     if (_pTextService->_pComposition == NULL)
     {
         DebugLog(L"CUpdateCompositionEditSession: No composition, starting new one");
@@ -137,13 +135,12 @@ CEndCompositionEditSession::CEndCompositionEditSession(CTextService *pTextServic
 
 STDMETHODIMP CEndCompositionEditSession::DoEditSession(TfEditCookie ec)
 {
-    DebugLog(L"CEndCompositionEditSession::DoEditSession called");
     if (_pTextService->_pComposition)
     {
         _pTextService->_pComposition->EndComposition(ec);
         _pTextService->_pComposition->Release();
         _pTextService->_pComposition = NULL;
-        DebugLog(L"CEndCompositionEditSession: EndComposition completed");
+        DebugLog(L"CEndCompositionEditSession: Composition ended");
     }
     return S_OK;
 }
@@ -156,12 +153,10 @@ CCommitCompositionEditSession::CCommitCompositionEditSession(CTextService *pText
 
 STDMETHODIMP CCommitCompositionEditSession::DoEditSession(TfEditCookie ec)
 {
-    DebugLog(L"CCommitCompositionEditSession::DoEditSession called, text='%s'", _commitText.c_str());
-    
-    // 1. If no composition exists, try to create one and commit directly
+    // If no composition exists, try to create one and commit directly
     if (_pTextService->_pComposition == NULL)
     {
-        DebugLog(L"CCommitCompositionEditSession: _pComposition is NULL, trying to insert text directly");
+        DebugLog(L"CCommitCompositionEditSession: No composition, inserting text directly");
         
         // Try to insert text directly using InsertAtSelection
         ITfInsertAtSelection *pInsertAtSelection;
@@ -225,15 +220,11 @@ STDMETHODIMP CCommitCompositionEditSession::DoEditSession(TfEditCookie ec)
         pSelection->Release();
     }
 
-    // 5. End composition (using same edit cookie)
+    // End composition (using same edit cookie)
     hr = _pTextService->_pComposition->EndComposition(ec);
     if (FAILED(hr))
     {
         DebugLog(L"CCommitCompositionEditSession: EndComposition failed, hr=0x%08X", hr);
-    }
-    else
-    {
-        DebugLog(L"CCommitCompositionEditSession: EndComposition succeeded");
     }
 
     // 6. Cleanup composition pointer

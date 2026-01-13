@@ -1,5 +1,6 @@
 #include "CandidateWindow.h"
 #include "TextService.h"
+#include "Config.h"
 #include <windowsx.h>
 
 #define CANDIDATE_WINDOW_CLASS L"UTIME_CandidateWindow"
@@ -81,23 +82,23 @@ void CCandidateWindow::Show(int x, int y, const std::vector<std::wstring>& candi
     HDC hdc = GetDC(_hwnd);
     HFONT hOldFont = (HFONT)SelectObject(hdc, _hFont);
 
-    int maxWidth = 200; // Minimum width
-    int totalHeight = _padding * 2;
+    int maxWidth = Config::CandidateWindow::MIN_WIDTH;
+    int totalHeight = Config::CandidateWindow::PADDING * 2;
 
     for (size_t i = 0; i < _candidates.size(); ++i)
     {
         std::wstring line = std::to_wstring(i + 1) + L". " + _candidates[i];
         SIZE sz;
         GetTextExtentPoint32(hdc, line.c_str(), (int)line.length(), &sz);
-        if (sz.cx + _padding * 4 > maxWidth) maxWidth = sz.cx + _padding * 4;
-        totalHeight += _lineHeight;
+        if (sz.cx + Config::CandidateWindow::PADDING * 4 > maxWidth) maxWidth = sz.cx + Config::CandidateWindow::PADDING * 4;
+        totalHeight += Config::CandidateWindow::LINE_HEIGHT;
     }
     
     SelectObject(hdc, hOldFont);
     ReleaseDC(_hwnd, hdc);
 
     // Position and resize
-    SetWindowPos(_hwnd, HWND_TOPMOST, x, y + 25, maxWidth, totalHeight, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    SetWindowPos(_hwnd, HWND_TOPMOST, x, y + Config::CandidateWindow::Y_OFFSET, maxWidth, totalHeight, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     
     // Trigger repaint
     InvalidateRect(_hwnd, NULL, TRUE);
@@ -142,7 +143,7 @@ LRESULT CALLBACK CCandidateWindow::_WndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         {
             // Calculate which candidate was clicked
             int mouseY = GET_Y_LPARAM(lParam);
-            int index = (mouseY - pThis->_padding) / pThis->_lineHeight;
+            int index = (mouseY - Config::CandidateWindow::PADDING) / Config::CandidateWindow::LINE_HEIGHT;
             
             // Validate index
             if (index >= 0 && index < (int)pThis->_candidates.size())
@@ -194,7 +195,7 @@ void CCandidateWindow::_OnPaint(HDC hdc)
     HFONT hOldFont = (HFONT)SelectObject(hdc, _hFont);
     SetBkMode(hdc, TRANSPARENT);
 
-    int y = _padding;
+    int y = Config::CandidateWindow::PADDING;
     for (size_t i = 0; i < _candidates.size(); ++i)
     {
         std::wstring line = std::to_wstring(i + 1) + L". " + _candidates[i];
@@ -202,7 +203,7 @@ void CCandidateWindow::_OnPaint(HDC hdc)
         // Highlight selected
         if ((int)i == _selectedIndex)
         {
-            RECT rcLine = { _padding, y, maxWidth - _padding, y + _lineHeight };
+            RECT rcLine = { Config::CandidateWindow::PADDING, y, maxWidth - Config::CandidateWindow::PADDING, y + Config::CandidateWindow::LINE_HEIGHT };
             HBRUSH hBrushSel = CreateSolidBrush(RGB(230, 240, 255)); // Light blue
             FillRect(hdc, &rcLine, hBrushSel);
             DeleteObject(hBrushSel);
@@ -213,8 +214,8 @@ void CCandidateWindow::_OnPaint(HDC hdc)
             SetTextColor(hdc, RGB(0, 0, 0)); // Black text
         }
 
-        TextOut(hdc, _padding * 2, y + 2, line.c_str(), (int)line.length());
-        y += _lineHeight;
+        TextOut(hdc, Config::CandidateWindow::PADDING * 2, y + 2, line.c_str(), (int)line.length());
+        y += Config::CandidateWindow::LINE_HEIGHT;
     }
 
     // Draw Version Stamp

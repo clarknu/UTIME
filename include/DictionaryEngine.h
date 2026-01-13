@@ -17,8 +17,6 @@ private:
     ~CDictionaryEngine();
     
     bool _CreateDatabase();
-    // void _LoadFromTextFile();
-    // bool _InsertRecord(const char* pinyin, const char* hanzi);
 
     sqlite3* _db;
     bool _isInitialized;

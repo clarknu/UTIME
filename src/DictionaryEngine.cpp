@@ -1,5 +1,6 @@
 #include "DictionaryEngine.h"
 #include "Globals.h"
+#include "Config.h"
 #include <shlobj.h>
 #include <fstream>
 #include <sstream>
@@ -64,9 +65,6 @@ std::vector<std::string> GetFuzzyList(const std::string& input) {
     return std::vector<std::string>(variants.begin(), variants.end());
 }
 
-
-// Use UTF-8 literal strings directly
-// #define U8(x) u8##x
 
 // Helper to remove tones from pinyin (e.g., "hǎo" -> "hao")
 std::string RemoveTones(const std::string& pinyin) {
@@ -284,13 +282,6 @@ bool CDictionaryEngine::Initialize()
     return false;
 }
 
-// _LoadFromTextFile and _InsertRecord are removed/unused now.
-// bool CDictionaryEngine::_InsertRecord(const char* pinyin, const char* hanzi)
-// {
-//     // Deprecated
-//     return false;
-// }
-
 std::vector<std::wstring> CDictionaryEngine::Query(const std::wstring& pinyin)
 {
     std::vector<std::wstring> results;
@@ -317,10 +308,10 @@ std::vector<std::wstring> CDictionaryEngine::Query(const std::wstring& pinyin)
     // Get all fuzzy variants (including auto-corrected)
     std::vector<std::string> searchKeys = GetFuzzyList(inputRaw);
     
-    // Limit variants to 5 for performance
-    if (searchKeys.size() > 5)
+    // Limit variants to max configured value for performance
+    if (searchKeys.size() > (size_t)Config::Dictionary::MAX_FUZZY_VARIANTS)
     {
-        searchKeys.resize(5);
+        searchKeys.resize(Config::Dictionary::MAX_FUZZY_VARIANTS);
     }
     
     DebugLog(L"Query: Generated %d fuzzy variants", searchKeys.size());
@@ -335,7 +326,7 @@ std::vector<std::wstring> CDictionaryEngine::Query(const std::wstring& pinyin)
         if (i > 0) sql += " OR ";
         sql += "(pinyin_clean LIKE ? OR initials LIKE ?)";
     }
-    sql += " ORDER BY length(pinyin_clean) ASC, priority DESC LIMIT 20;";
+    sql += " ORDER BY length(pinyin_clean) ASC, priority DESC LIMIT " + std::to_string(Config::Dictionary::MAX_QUERY_RESULTS) + ";";
     
     DebugLog(L"Query: SQL='%S'", sql.c_str());
 

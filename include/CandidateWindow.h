@@ -38,8 +38,4 @@ private:
     CTextService* _pTextService;
     ITfContext* _pContext;
     int _clickedIndex;  // Temporary storage for clicked candidate index
-    
-    // Layout constants
-    const int _padding = 5;
-    const int _lineHeight = 24;
 };

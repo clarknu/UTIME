@@ -2,6 +2,7 @@
 #include "EditSession.h"
 #include "GetTextExtEditSession.h"
 #include "DictionaryEngine.h"
+#include "Config.h"
 #include <fstream>
 #include <winuser.h>
 
@@ -245,33 +246,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext *pic, WPARAM wParam, LPARAM lPar
                 std::wstring commitText = _candidateList[index];
                 DebugLog(L"OnKeyDown Number Key %d: Committing candidate='%s'", index + 1, commitText.c_str());
                 
-                // Use synchronous commit session
-                CCommitCompositionEditSession *pCommit = new CCommitCompositionEditSession(this, pic, commitText);
-                HRESULT hrSession;
-                HRESULT hr = pic->RequestEditSession(_tfClientId, pCommit, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
-                
-                if (hr == TF_E_SYNCHRONOUS)
-                {
-                    DebugLog(L"OnKeyDown Number: Application rejected synchronous request, falling back to async");
-                    hr = pic->RequestEditSession(_tfClientId, pCommit, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, NULL);
-                }
-                
-                if (FAILED(hr))
-                {
-                    DebugLog(L"OnKeyDown Number: RequestEditSession failed, hr=0x%08X", hr);
-                }
-                else
-                {
-                    DebugLog(L"OnKeyDown Number: RequestEditSession succeeded, hrSession=0x%08X", hrSession);
-                }
-                
-                pCommit->Release();
-                
-                // Clear state
-                _sComposition.clear();
-                _candidateList.clear();
-                _selectedCandidateIndex = 0;
-                if (_pCandidateWindow) _pCandidateWindow->Hide();
+                // Use helper method to commit
+                _CommitCandidateText(pic, commitText);
             }
             else
             {
@@ -292,34 +268,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext *pic, WPARAM wParam, LPARAM lPar
             
             DebugLog(L"OnKeyDown VK_SPACE: Committing text='%s', selectedIndex=%d", commitText.c_str(), _selectedCandidateIndex);
             
-            // Use new synchronous commit session
-            CCommitCompositionEditSession *pCommit = new CCommitCompositionEditSession(this, pic, commitText);
-            HRESULT hrSession;
-            HRESULT hr = pic->RequestEditSession(_tfClientId, pCommit, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
-            
-            if (hr == TF_E_SYNCHRONOUS)
-            {
-                DebugLog(L"OnKeyDown VK_SPACE: Application rejected synchronous request, falling back to async");
-                // Fallback to async mode
-                hr = pic->RequestEditSession(_tfClientId, pCommit, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, NULL);
-            }
-            
-            if (FAILED(hr))
-            {
-                DebugLog(L"OnKeyDown VK_SPACE: RequestEditSession failed, hr=0x%08X", hr);
-            }
-            else
-            {
-                DebugLog(L"OnKeyDown VK_SPACE: RequestEditSession succeeded, hrSession=0x%08X", hrSession);
-            }
-            
-            pCommit->Release();
-            
-            // Clear state
-            _sComposition.clear();
-            _candidateList.clear();
-            _selectedCandidateIndex = 0;
-            if (_pCandidateWindow) _pCandidateWindow->Hide();
+            // Use helper method to commit
+            _CommitCandidateText(pic, commitText);
         }
         else
         {
@@ -334,33 +284,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext *pic, WPARAM wParam, LPARAM lPar
             
             DebugLog(L"OnKeyDown VK_RETURN: Committing raw text='%s'", commitText.c_str());
             
-            // Use synchronous commit session
-            CCommitCompositionEditSession *pCommit = new CCommitCompositionEditSession(this, pic, commitText);
-            HRESULT hrSession;
-            HRESULT hr = pic->RequestEditSession(_tfClientId, pCommit, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
-            
-            if (hr == TF_E_SYNCHRONOUS)
-            {
-                DebugLog(L"OnKeyDown VK_RETURN: Application rejected synchronous request, falling back to async");
-                hr = pic->RequestEditSession(_tfClientId, pCommit, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, NULL);
-            }
-            
-            if (FAILED(hr))
-            {
-                DebugLog(L"OnKeyDown VK_RETURN: RequestEditSession failed, hr=0x%08X", hr);
-            }
-            else
-            {
-                DebugLog(L"OnKeyDown VK_RETURN: RequestEditSession succeeded, hrSession=0x%08X", hrSession);
-            }
-            
-            pCommit->Release();
-            
-            // Clear state
-            _sComposition.clear();
-            _candidateList.clear();
-            _selectedCandidateIndex = 0;
-            if (_pCandidateWindow) _pCandidateWindow->Hide();
+            // Use helper method to commit
+            _CommitCandidateText(pic, commitText);
         }
         else
         {
@@ -474,6 +399,42 @@ HRESULT CTextService::_EndComposition(ITfContext *pContext)
     CEndCompositionEditSession *pEditSession = new CEndCompositionEditSession(this, pContext);
     HRESULT hr = pContext->RequestEditSession(_tfClientId, pEditSession, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, NULL);
     pEditSession->Release();
+    return hr;
+}
+
+// Helper method to commit candidate text (extracted common logic from number/space/enter key handlers)
+HRESULT CTextService::_CommitCandidateText(ITfContext *pContext, const std::wstring& text)
+{
+    DebugLog(L"_CommitCandidateText: Committing text='%s'", text.c_str());
+    
+    // Create commit session
+    CCommitCompositionEditSession *pCommit = new CCommitCompositionEditSession(this, pContext, text);
+    HRESULT hrSession;
+    HRESULT hr = pContext->RequestEditSession(_tfClientId, pCommit, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
+    
+    if (hr == TF_E_SYNCHRONOUS)
+    {
+        DebugLog(L"_CommitCandidateText: Application rejected synchronous request, falling back to async");
+        hr = pContext->RequestEditSession(_tfClientId, pCommit, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, NULL);
+    }
+    
+    if (FAILED(hr))
+    {
+        DebugLog(L"_CommitCandidateText: RequestEditSession failed, hr=0x%08X", hr);
+    }
+    else
+    {
+        DebugLog(L"_CommitCandidateText: RequestEditSession succeeded");
+    }
+    
+    pCommit->Release();
+    
+    // Clear state after successful commit
+    _sComposition.clear();
+    _candidateList.clear();
+    _selectedCandidateIndex = 0;
+    if (_pCandidateWindow) _pCandidateWindow->Hide();
+    
     return hr;
 }
 
@@ -627,8 +588,8 @@ void CTextService::_UpdateCandidateWindow(ITfContext *pContext)
                     {
                         rc.left = ptCaret.x;
                         rc.top = ptCaret.y;
-                        rc.right = rc.left + 2;
-                        rc.bottom = rc.top + 20;
+                        rc.right = rc.left + Config::CaretPosition::FALLBACK_WIDTH;
+                        rc.bottom = rc.top + Config::CaretPosition::FALLBACK_HEIGHT;
                         DebugLog(L"_UpdateCandidateWindow: Used GetCaretPos: (%d, %d)", rc.left, rc.top);
                     }
                 }
@@ -666,14 +627,14 @@ void CTextService::_UpdateCandidateWindow(ITfContext *pContext)
         if (GetCursorPos(&pt))
         {
             showPt = pt;
-            showPt.y += 20; // offset to avoid covering text
+            showPt.y += Config::CaretPosition::MOUSE_FALLBACK_Y_OFFSET; // offset to avoid covering text
             DebugLog(L"_UpdateCandidateWindow: Falling back to mouse position: (%d, %d)", showPt.x, showPt.y);
         }
         else
         {
             // Last resort: small offset from (0,0) to avoid top-left
-            showPt.x = 100;
-            showPt.y = 100;
+            showPt.x = Config::CaretPosition::DEFAULT_POSITION_X;
+            showPt.y = Config::CaretPosition::DEFAULT_POSITION_Y;
             DebugLog(L"_UpdateCandidateWindow: GetCursorPos failed, using default position: (%d, %d)", showPt.x, showPt.y);
         }
     }
@@ -704,33 +665,8 @@ void CTextService::CommitCandidate(ITfContext *pContext, int index)
     std::wstring commitText = _candidateList[index];
     DebugLog(L"CommitCandidate: Committing candidate='%s'", commitText.c_str());
     
-    // Create commit session
-    CCommitCompositionEditSession *pCommit = new CCommitCompositionEditSession(this, pContext, commitText);
-    HRESULT hrSession;
-    HRESULT hr = pContext->RequestEditSession(_tfClientId, pCommit, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
-    
-    if (hr == TF_E_SYNCHRONOUS)
-    {
-        DebugLog(L"CommitCandidate: Application rejected synchronous request, falling back to async");
-        hr = pContext->RequestEditSession(_tfClientId, pCommit, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, NULL);
-    }
-    
-    if (FAILED(hr))
-    {
-        DebugLog(L"CommitCandidate: RequestEditSession failed, hr=0x%08X", hr);
-    }
-    else
-    {
-        DebugLog(L"CommitCandidate: RequestEditSession succeeded, hrSession=0x%08X", hrSession);
-    }
-    
-    pCommit->Release();
-    
-    // Clear state
-    _sComposition.clear();
-    _candidateList.clear();
-    _selectedCandidateIndex = 0;
-    if (_pCandidateWindow) _pCandidateWindow->Hide();
+    // Use helper method to commit
+    _CommitCandidateText(pContext, commitText);
 }
 
 // Get current active context

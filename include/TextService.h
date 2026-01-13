@@ -54,7 +54,10 @@ private:
     HRESULT _UpdateComposition(ITfContext *pContext);
     HRESULT _EndComposition(ITfContext *pContext);
     
-    // New: Update Candidate Window
+    // Helper method to commit candidate text (extracted common logic)
+    HRESULT _CommitCandidateText(ITfContext *pContext, const std::wstring& text);
+    
+    // Update Candidate Window
     void _UpdateCandidateWindow(ITfContext *pContext);
 
     long _cRef;
